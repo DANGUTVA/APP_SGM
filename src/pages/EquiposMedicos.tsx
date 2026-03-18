@@ -1,32 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getEquiposMedicos } from '../lib/supabase';
-import { Stethoscope, AlertTriangle, CheckCircle, Clock, Search, Plus, Filter } from 'lucide-react';
+import { Stethoscope, AlertTriangle, CheckCircle, Clock, Search, Plus, Filter, RefreshCw } from 'lucide-react';
 
 const EquiposMedicos = () => {
   const [equipos, setEquipos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
   const [equiposFiltrados, setEquiposFiltrados] = useState<any[]>([]);
+  
+  // Estado para forzar una recarga manual
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchEquipos = async () => {
+      setLoading(true);
+      setError(null);
+      
       try {
         const data = await getEquiposMedicos();
-        setEquipos(data);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error al cargar equipos médicos:', error);
-        setLoading(false);
+        if (isMounted) {
+          setEquipos(data);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        console.error('Error al cargar equipos médicos:', err);
+        if (isMounted) {
+          setError(err.message || 'No se pudieron cargar los equipos médicos. Verifique su conexión.');
+          setLoading(false);
+        }
       }
     };
     
     fetchEquipos();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [retryTrigger]); // Se vuelve a ejecutar si cambia retryTrigger
 
   useEffect(() => {
-    // Aplicar filtros
+    // Aplicar filtros de búsqueda de manera local
     let resultado = equipos;
     
     // Filtrar por estado
@@ -35,14 +53,14 @@ const EquiposMedicos = () => {
     }
     
     // Filtrar por término de búsqueda
-    if (busqueda) {
-      const terminoBusqueda = busqueda.toLowerCase();
+    if (busqueda.trim()) {
+      const terminoBusqueda = busqueda.toLowerCase().trim();
       resultado = resultado.filter(equipo => 
-        equipo.id_equipo.toLowerCase().includes(terminoBusqueda) ||
-        equipo.tipo_equipo.toLowerCase().includes(terminoBusqueda) ||
-        equipo.marca.toLowerCase().includes(terminoBusqueda) ||
-        equipo.modelo.toLowerCase().includes(terminoBusqueda) ||
-        equipo.numero_serie.toLowerCase().includes(terminoBusqueda)
+        (equipo.id_equipo && equipo.id_equipo.toLowerCase().includes(terminoBusqueda)) ||
+        (equipo.tipo_equipo && equipo.tipo_equipo.toLowerCase().includes(terminoBusqueda)) ||
+        (equipo.marca && equipo.marca.toLowerCase().includes(terminoBusqueda)) ||
+        (equipo.modelo && equipo.modelo.toLowerCase().includes(terminoBusqueda)) ||
+        (equipo.numero_serie && equipo.numero_serie.toLowerCase().includes(terminoBusqueda))
       );
     }
     
@@ -84,6 +102,23 @@ const EquiposMedicos = () => {
           </div>
           <p className="mt-2 text-gray-600">Cargando equipos médicos...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 bg-white shadow rounded-lg p-6">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Ocurrió un error</h2>
+        <p className="text-gray-600 mb-6 text-center max-w-md">{error}</p>
+        <button 
+          onClick={() => setRetryTrigger(prev => prev + 1)}
+          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -144,7 +179,7 @@ const EquiposMedicos = () => {
           <ul className="divide-y divide-gray-200">
             {equiposFiltrados.map((equipo) => (
               <li key={equipo.id_equipo}>
-                <Link to={`/equipos/${equipo.id_equipo}`} className="block hover:bg-gray-50">
+                <Link to={`/equipos/${equipo.id_equipo}`} className="block hover:bg-gray-50 transition duration-150 ease-in-out">
                   <div className="px-4 py-4 sm:px-6">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center">
@@ -161,7 +196,7 @@ const EquiposMedicos = () => {
                         </div>
                       </div>
                       <div className="ml-2 flex-shrink-0 flex">
-                        <p className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getEstadoClase(equipo.estado)}`}>
+                        <p className={`px-2 inline-flex items-center text-xs leading-5 font-semibold rounded-full ${getEstadoClase(equipo.estado)}`}>
                           {getEstadoIcono(equipo.estado)}
                           <span className="ml-1">{equipo.estado.charAt(0).toUpperCase() + equipo.estado.slice(1)}</span>
                         </p>
@@ -174,7 +209,7 @@ const EquiposMedicos = () => {
                         </p>
                       </div>
                       <div className="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                        Frecuencia: {equipo.frecuencia_mantenimiento}
+                        Frecuencia: <span className="capitalize ml-1">{equipo.frecuencia_mantenimiento}</span>
                       </div>
                     </div>
                   </div>
@@ -183,13 +218,15 @@ const EquiposMedicos = () => {
             ))}
           </ul>
         ) : (
-          <div className="text-center py-6">
-            <div className="mx-auto h-12 w-12 text-gray-400">
-              <AlertTriangle className="h-12 w-12" />
+          <div className="text-center py-10">
+            <div className="mx-auto h-12 w-12 text-gray-400 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+              <AlertTriangle className="h-6 w-6" />
             </div>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron equipos</h3>
+            <h3 className="text-sm font-medium text-gray-900">No se encontraron equipos</h3>
             <p className="mt-1 text-sm text-gray-500">
-              No hay equipos médicos que coincidan con los criterios de búsqueda.
+              {equipos.length === 0 
+                ? "Aún no hay equipos registrados en el sistema."
+                : "No hay equipos médicos que coincidan con los criterios de búsqueda."}
             </p>
             <div className="mt-6">
               <Link
