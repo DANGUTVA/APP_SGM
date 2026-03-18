@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getEquiposMedicos, getHistoricoMantenimientos, getMantenimientosProgramados } from '../lib/supabase';
-import { BarChart3, PieChart, Calendar, Download, Filter } from 'lucide-react';
+import { BarChart3, PieChart, Calendar, Download, Filter, AlertTriangle, RefreshCw } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -9,11 +9,20 @@ const Reportes = () => {
   const [historial, setHistorial] = useState<any[]>([]);
   const [mantenimientosProgramados, setMantenimientosProgramados] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [periodo, setPeriodo] = useState('mes_actual');
   const [tipoReporte, setTipoReporte] = useState('cumplimiento');
 
+  // Estado para forzar recarga manual si hay error
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
   useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
         const [equiposData, historialData, mantenimientosData] = await Promise.all([
           getEquiposMedicos(),
@@ -21,18 +30,27 @@ const Reportes = () => {
           getMantenimientosProgramados()
         ]);
         
-        setEquipos(equiposData);
-        setHistorial(historialData);
-        setMantenimientosProgramados(mantenimientosData);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error al cargar datos para reportes:', error);
-        setLoading(false);
+        if (isMounted) {
+          setEquipos(equiposData);
+          setHistorial(historialData);
+          setMantenimientosProgramados(mantenimientosData);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        console.error('Error al cargar datos para reportes:', err);
+        if (isMounted) {
+          setError(err.message || 'No se pudieron cargar los datos para los reportes. Verifique su conexión.');
+          setLoading(false);
+        }
       }
     };
     
     fetchData();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [retryTrigger]);
 
   // Filtrar datos según el período seleccionado
   const getDataByPeriodo = () => {
@@ -132,12 +150,29 @@ const Reportes = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 bg-white shadow rounded-lg p-6">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Ocurrió un error</h2>
+        <p className="text-gray-600 mb-6 text-center max-w-md">{error}</p>
+        <button 
+          onClick={() => setRetryTrigger(prev => prev + 1)}
+          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Reportes</h1>
         <button
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
         >
           <Download className="h-4 w-4 mr-2" />
           Exportar reporte
@@ -241,8 +276,8 @@ const Reportes = () => {
                             : 0}%)
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div className="bg-green-600 h-2.5 rounded-full" style={{ width: `${mantenimientosFiltrados.length > 0 
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-green-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${mantenimientosFiltrados.length > 0 
                           ? (metricas.mantenimientosPorEstado.completado / mantenimientosFiltrados.length) * 100 
                           : 0}%` }}></div>
                       </div>
@@ -257,8 +292,8 @@ const Reportes = () => {
                             : 0}%)
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${mantenimientosFiltrados.length > 0 
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${mantenimientosFiltrados.length > 0 
                           ? (metricas.mantenimientosPorEstado.pendiente / mantenimientosFiltrados.length) * 100 
                           : 0}%` }}></div>
                       </div>
@@ -273,8 +308,8 @@ const Reportes = () => {
                             : 0}%)
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div className="bg-yellow-500 h-2.5 rounded-full" style={{ width: `${mantenimientosFiltrados.length > 0 
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-yellow-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${mantenimientosFiltrados.length > 0 
                           ? (metricas.mantenimientosPorEstado.en_proceso / mantenimientosFiltrados.length) * 100 
                           : 0}%` }}></div>
                       </div>
@@ -289,8 +324,8 @@ const Reportes = () => {
                             : 0}%)
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div className="bg-purple-500 h-2.5 rounded-full" style={{ width: `${mantenimientosFiltrados.length > 0 
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-purple-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${mantenimientosFiltrados.length > 0 
                           ? (metricas.mantenimientosPorEstado.reprogramado / mantenimientosFiltrados.length) * 100 
                           : 0}%` }}></div>
                       </div>
@@ -305,8 +340,8 @@ const Reportes = () => {
                             : 0}%)
                         </span>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2.5">
-                        <div className="bg-red-500 h-2.5 rounded-full" style={{ width: `${mantenimientosFiltrados.length > 0 
+                      <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                        <div className="bg-red-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${mantenimientosFiltrados.length > 0 
                           ? (metricas.mantenimientosPorEstado.cancelado / mantenimientosFiltrados.length) * 100 
                           : 0}%` }}></div>
                       </div>
@@ -325,7 +360,7 @@ const Reportes = () => {
                   <p className="text-sm text-gray-500">Equipos activos</p>
                   <p className="text-2xl font-bold text-gray-800">{metricas.equiposPorEstado.activo}</p>
                   <p className="text-sm text-gray-500 mt-2">
-                    {((metricas.equiposPorEstado.activo / equipos.length) * 100).toFixed(1)}% del total
+                    {equipos.length > 0 ? ((metricas.equiposPorEstado.activo / equipos.length) * 100).toFixed(1) : 0}% del total
                   </p>
                 </div>
                 
@@ -333,7 +368,7 @@ const Reportes = () => {
                   <p className="text-sm text-gray-500">En mantenimiento</p>
                   <p className="text-2xl font-bold text-gray-800">{metricas.equiposPorEstado.mantenimiento}</p>
                   <p className="text-sm text-gray-500 mt-2">
-                    {((metricas.equiposPorEstado.mantenimiento / equipos.length) * 100).toFixed(1)}% del total
+                    {equipos.length > 0 ? ((metricas.equiposPorEstado.mantenimiento / equipos.length) * 100).toFixed(1) : 0}% del total
                   </p>
                 </div>
                 
@@ -341,7 +376,7 @@ const Reportes = () => {
                   <p className="text-sm text-gray-500">Equipos inactivos</p>
                   <p className="text-2xl font-bold text-gray-800">{metricas.equiposPorEstado.inactivo}</p>
                   <p className="text-sm text-gray-500 mt-2">
-                    {((metricas.equiposPorEstado.inactivo / equipos.length) * 100).toFixed(1)}% del total
+                    {equipos.length > 0 ? ((metricas.equiposPorEstado.inactivo / equipos.length) * 100).toFixed(1) : 0}% del total
                   </p>
                 </div>
               </div>
@@ -377,13 +412,13 @@ const Reportes = () => {
                 <div className="mt-6">
                   <h4 className="text-base font-semibold text-gray-800 mb-4">Relación preventivo vs. correctivo</h4>
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="w-full bg-gray-200 rounded-full h-4">
-                      <div className="bg-green-500 h-4 rounded-l-full" style={{ 
+                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                      <div className="bg-green-500 h-4 transition-all duration-500" style={{ 
                         width: `${(metricas.mantenimientosPorTipo.preventivo / historialFiltrado.length) * 100}%`,
                         float: 'left'
                       }}>
                       </div>
-                      <div className="bg-orange-500 h-4 rounded-r-full" style={{ 
+                      <div className="bg-orange-500 h-4 transition-all duration-500" style={{ 
                         width: `${(metricas.mantenimientosPorTipo.correctivo / historialFiltrado.length) * 100}%`,
                         float: 'left'
                       }}>
