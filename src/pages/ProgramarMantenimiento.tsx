@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getEquiposMedicos, getDiasNoLaborables, supabase } from '../lib/supabase';
-import { ChevronLeft, Save, Calendar, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Save, Calendar, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { format, parseISO, isWeekend, isSameDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -18,6 +18,10 @@ const ProgramarMantenimiento = () => {
   const [fechaNoLaborable, setFechaNoLaborable] = useState(false);
   const [fechaFinSemana, setFechaFinSemana] = useState(false);
   
+  // Estados para manejar errores y éxito en el envío
+  const [submitError, setSubmitError] = useState<string>('');
+  const [submitSuccess, setSubmitSuccess] = useState<boolean>(false);
+  
   const [formData, setFormData] = useState({
     equipo_id: equipoIdFromQuery || '',
     fecha_programada: new Date().toISOString().split('T')[0],
@@ -32,6 +36,9 @@ const ProgramarMantenimiento = () => {
   const [equipoSeleccionado, setEquipoSeleccionado] = useState<any>(null);
 
   useEffect(() => {
+    // Bandera para evitar actualización de estado si el componente se desmonta
+    let isMounted = true;
+
     const fetchDatos = async () => {
       try {
         const [equiposData, diasNLData] = await Promise.all([
@@ -39,24 +46,32 @@ const ProgramarMantenimiento = () => {
           getDiasNoLaborables()
         ]);
         
-        setEquipos(equiposData);
-        setDiasNoLaborables(diasNLData);
-        
-        if (equipoIdFromQuery) {
-          const equipo = equiposData.find(e => e.id_equipo === equipoIdFromQuery);
-          if (equipo) {
-            setEquipoSeleccionado(equipo);
+        if (isMounted) {
+          setEquipos(equiposData);
+          setDiasNoLaborables(diasNLData);
+          
+          if (equipoIdFromQuery) {
+            const equipo = equiposData.find(e => e.id_equipo === equipoIdFromQuery);
+            if (equipo) {
+              setEquipoSeleccionado(equipo);
+            }
           }
+          
+          setLoadingDatos(false);
         }
-        
-        setLoadingDatos(false);
       } catch (error) {
         console.error('Error al cargar datos:', error);
-        setLoadingDatos(false);
+        if (isMounted) {
+          setLoadingDatos(false);
+        }
       }
     };
     
     fetchDatos();
+
+    return () => {
+      isMounted = false;
+    };
   }, [equipoIdFromQuery]);
 
   useEffect(() => {
@@ -91,6 +106,9 @@ const ProgramarMantenimiento = () => {
       });
     }
     
+    // Limpiar error de envío general
+    if (submitError) setSubmitError('');
+    
     // Actualizar equipo seleccionado si cambia el ID del equipo
     if (name === 'equipo_id') {
       const equipo = equipos.find(e => e.id_equipo === value);
@@ -119,6 +137,7 @@ const ProgramarMantenimiento = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     
     if (!validateForm()) {
       return;
@@ -128,18 +147,22 @@ const ProgramarMantenimiento = () => {
     
     try {
       // Insertar en la base de datos
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('mantenimientos_programados')
         .insert(formData)
         .select();
       
       if (error) throw error;
       
-      // Redirigir a la página de mantenimientos
-      navigate('/mantenimientos');
+      // Estado de éxito antes de redirigir
+      setSubmitSuccess(true);
+      setTimeout(() => {
+        navigate('/mantenimientos');
+      }, 800);
+
     } catch (error: any) {
       console.error('Error al programar mantenimiento:', error);
-      alert(`Error al programar mantenimiento: ${error.message}`);
+      setSubmitError(error.message || 'Ocurrió un error inesperado al programar el mantenimiento.');
       setLoading(false);
     }
   };
@@ -180,6 +203,37 @@ const ProgramarMantenimiento = () => {
         </div>
         
         <div className="px-4 py-5 sm:p-6">
+          
+          {/* BANNER DE ERROR */}
+          {submitError && (
+            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700 font-medium">Error al programar</p>
+                  <p className="text-sm text-red-600 mt-1">{submitError}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BANNER DE ÉXITO */}
+          {submitSuccess && (
+            <div className="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded-md">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <CheckCircle2 className="h-5 w-5 text-green-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-green-700 font-medium">¡Mantenimiento programado con éxito!</p>
+                  <p className="text-sm text-green-600 mt-1">Redirigiendo al listado...</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-6">
               {/* Selección de equipo */}
@@ -193,8 +247,9 @@ const ProgramarMantenimiento = () => {
                     id="equipo_id"
                     value={formData.equipo_id}
                     onChange={handleChange}
+                    disabled={loading || submitSuccess}
                     className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
-                      formErrors.equipo_id ? 'border-red-300' : ''
+                      formErrors.equipo_id ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
                     }`}
                   >
                     <option value="">Seleccione un equipo</option>
@@ -248,8 +303,9 @@ const ProgramarMantenimiento = () => {
                     value={formData.fecha_programada}
                     onChange={handleChange}
                     min={new Date().toISOString().split('T')[0]}
+                    disabled={loading || submitSuccess}
                     className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
-                      formErrors.fecha_programada ? 'border-red-300' : ''
+                      formErrors.fecha_programada ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
                     }`}
                   />
                   {formErrors.fecha_programada && (
@@ -294,8 +350,9 @@ const ProgramarMantenimiento = () => {
                     onChange={handleChange}
                     min="15"
                     max="480"
+                    disabled={loading || submitSuccess}
                     className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
-                      formErrors.duracion_estimada ? 'border-red-300' : ''
+                      formErrors.duracion_estimada ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
                     }`}
                   />
                   {formErrors.duracion_estimada && (
@@ -316,6 +373,7 @@ const ProgramarMantenimiento = () => {
                     id="tecnico_asignado"
                     value={formData.tecnico_asignado}
                     onChange={handleChange}
+                    disabled={loading || submitSuccess}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                     placeholder="Nombre del técnico"
                   />
@@ -333,6 +391,7 @@ const ProgramarMantenimiento = () => {
                     id="prioridad"
                     value={formData.prioridad}
                     onChange={handleChange}
+                    disabled={loading || submitSuccess}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                   >
                     <option value="baja">Baja</option>
@@ -355,6 +414,7 @@ const ProgramarMantenimiento = () => {
                     rows={4}
                     value={formData.notas}
                     onChange={handleChange}
+                    disabled={loading || submitSuccess}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                     placeholder="Instrucciones especiales o notas para el mantenimiento..."
                   />
@@ -362,8 +422,8 @@ const ProgramarMantenimiento = () => {
               </div>
             </div>
 
-            <div className="pt-5">
-              <div className="flex justify-end">
+            <div className="pt-5 border-t border-gray-200">
+              <div className="flex justify-end mt-4">
                 <Link
                   to="/mantenimientos"
                   className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -372,8 +432,8 @@ const ProgramarMantenimiento = () => {
                 </Link>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  disabled={loading || submitSuccess}
+                  className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <>
@@ -382,6 +442,11 @@ const ProgramarMantenimiento = () => {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Guardando...
+                    </>
+                  ) : submitSuccess ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      ¡Programado!
                     </>
                   ) : (
                     <>
