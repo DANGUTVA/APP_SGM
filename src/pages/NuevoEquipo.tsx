@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getUbicaciones, insertEquipoMedico } from '../lib/supabase';
-import { ChevronLeft, Save, Plus } from 'lucide-react';
+import { ChevronLeft, Save, Plus, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 const NuevoEquipo = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [ubicaciones, setUbicaciones] = useState<any[]>([]);
   const [loadingUbicaciones, setLoadingUbicaciones] = useState(true);
+  
+  // Nuevos estados para manejar errores de envío sin usar alert()
+  const [submitError, setSubmitError] = useState<string>('');
+  const [submitSuccess, setSubmitSuccess] = useState<boolean>(false);
   
   const [formData, setFormData] = useState({
     id_equipo: '',
@@ -26,18 +30,30 @@ const NuevoEquipo = () => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    // Bandera para evitar fugas de memoria si el componente se desmonta
+    let isMounted = true;
+
     const fetchUbicaciones = async () => {
       try {
         const data = await getUbicaciones();
-        setUbicaciones(data);
-        setLoadingUbicaciones(false);
+        if (isMounted) {
+          setUbicaciones(data);
+          setLoadingUbicaciones(false);
+        }
       } catch (error) {
         console.error('Error al cargar ubicaciones:', error);
-        setLoadingUbicaciones(false);
+        if (isMounted) {
+          setLoadingUbicaciones(false);
+        }
       }
     };
     
     fetchUbicaciones();
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -47,41 +63,26 @@ const NuevoEquipo = () => {
       [name]: value
     });
     
-    // Limpiar error cuando se modifica un campo
+    // Limpiar errores locales cuando el usuario escribe
     if (formErrors[name]) {
       setFormErrors({
         ...formErrors,
         [name]: ''
       });
     }
+    // Limpiar error global de envío
+    if (submitError) setSubmitError('');
   };
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
     
-    if (!formData.id_equipo.trim()) {
-      errors.id_equipo = 'El ID del equipo es obligatorio';
-    }
-    
-    if (!formData.tipo_equipo.trim()) {
-      errors.tipo_equipo = 'El tipo de equipo es obligatorio';
-    }
-    
-    if (!formData.marca.trim()) {
-      errors.marca = 'La marca es obligatoria';
-    }
-    
-    if (!formData.modelo.trim()) {
-      errors.modelo = 'El modelo es obligatorio';
-    }
-    
-    if (!formData.numero_serie.trim()) {
-      errors.numero_serie = 'El número de serie es obligatorio';
-    }
-    
-    if (!formData.fecha_adquisicion) {
-      errors.fecha_adquisicion = 'La fecha de adquisición es obligatoria';
-    }
+    if (!formData.id_equipo.trim()) errors.id_equipo = 'El ID del equipo es obligatorio';
+    if (!formData.tipo_equipo.trim()) errors.tipo_equipo = 'El tipo de equipo es obligatorio';
+    if (!formData.marca.trim()) errors.marca = 'La marca es obligatoria';
+    if (!formData.modelo.trim()) errors.modelo = 'El modelo es obligatorio';
+    if (!formData.numero_serie.trim()) errors.numero_serie = 'El número de serie es obligatorio';
+    if (!formData.fecha_adquisicion) errors.fecha_adquisicion = 'La fecha de adquisición es obligatoria';
     
     if (formData.frecuencia_mantenimiento === 'personalizado' && !formData.intervalo_personalizado) {
       errors.intervalo_personalizado = 'El intervalo personalizado es obligatorio';
@@ -93,6 +94,7 @@ const NuevoEquipo = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(''); // Resetear error anterior
     
     if (!validateForm()) {
       return;
@@ -110,14 +112,18 @@ const NuevoEquipo = () => {
         ubicacion_id: formData.ubicacion_id || null
       };
       
-      // Insertar en la base de datos usando la nueva función de utilidad
       const nuevoEquipo = await insertEquipoMedico(equipoData);
       
-      // Redirigir a la página de detalles del equipo
-      navigate(`/equipos/${nuevoEquipo.id_equipo}`);
+      // Mostrar estado de éxito brevemente antes de redirigir
+      setSubmitSuccess(true);
+      setTimeout(() => {
+        navigate(`/equipos/${nuevoEquipo.id_equipo}`);
+      }, 800);
+
     } catch (error: any) {
       console.error('Error al registrar equipo:', error);
-      alert(`Error al registrar equipo: ${error.message}`);
+      // Capturar errores específicos (ej. ID duplicado)
+      setSubmitError(error.message || 'Ocurrió un error inesperado al guardar el equipo en la base de datos.');
       setLoading(false);
     }
   };
@@ -138,6 +144,36 @@ const NuevoEquipo = () => {
         </div>
         
         <div className="px-4 py-5 sm:p-6">
+          {/* BANNER DE ERROR (Reemplaza el alert) */}
+          {submitError && (
+            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700 font-medium">Error al registrar</p>
+                  <p className="text-sm text-red-600 mt-1">{submitError}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* BANNER DE ÉXITO */}
+          {submitSuccess && (
+            <div className="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded-md">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <CheckCircle2 className="h-5 w-5 text-green-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-green-700 font-medium">¡Equipo guardado con éxito!</p>
+                  <p className="text-sm text-green-600 mt-1">Redirigiendo a los detalles...</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-6">
               {/* ID del equipo */}
@@ -153,9 +189,10 @@ const NuevoEquipo = () => {
                     value={formData.id_equipo}
                     onChange={handleChange}
                     className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
-                      formErrors.id_equipo ? 'border-red-300' : ''
+                      formErrors.id_equipo ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''
                     }`}
                     placeholder="EM-001"
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.id_equipo && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.id_equipo}</p>
@@ -179,6 +216,7 @@ const NuevoEquipo = () => {
                       formErrors.tipo_equipo ? 'border-red-300' : ''
                     }`}
                     placeholder="Ecógrafo, Electrocardiograma, etc."
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.tipo_equipo && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.tipo_equipo}</p>
@@ -202,6 +240,7 @@ const NuevoEquipo = () => {
                       formErrors.marca ? 'border-red-300' : ''
                     }`}
                     placeholder="Siemens, GE, Philips, etc."
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.marca && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.marca}</p>
@@ -225,6 +264,7 @@ const NuevoEquipo = () => {
                       formErrors.modelo ? 'border-red-300' : ''
                     }`}
                     placeholder="X-300, Acuson, etc."
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.modelo && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.modelo}</p>
@@ -248,6 +288,7 @@ const NuevoEquipo = () => {
                       formErrors.numero_serie ? 'border-red-300' : ''
                     }`}
                     placeholder="SN12345678"
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.numero_serie && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.numero_serie}</p>
@@ -270,6 +311,7 @@ const NuevoEquipo = () => {
                     className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
                       formErrors.fecha_adquisicion ? 'border-red-300' : ''
                     }`}
+                    disabled={loading || submitSuccess}
                   />
                   {formErrors.fecha_adquisicion && (
                     <p className="mt-1 text-sm text-red-600">{formErrors.fecha_adquisicion}</p>
@@ -289,6 +331,7 @@ const NuevoEquipo = () => {
                     value={formData.frecuencia_mantenimiento}
                     onChange={handleChange}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    disabled={loading || submitSuccess}
                   >
                     <option value="mensual">Mensual</option>
                     <option value="bimestral">Bimestral</option>
@@ -318,6 +361,7 @@ const NuevoEquipo = () => {
                       className={`shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md ${
                         formErrors.intervalo_personalizado ? 'border-red-300' : ''
                       }`}
+                      disabled={loading || submitSuccess}
                     />
                     {formErrors.intervalo_personalizado && (
                       <p className="mt-1 text-sm text-red-600">{formErrors.intervalo_personalizado}</p>
@@ -338,6 +382,7 @@ const NuevoEquipo = () => {
                     value={formData.estado}
                     onChange={handleChange}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    disabled={loading || submitSuccess}
                   >
                     <option value="activo">Activo</option>
                     <option value="mantenimiento">En mantenimiento</option>
@@ -358,6 +403,7 @@ const NuevoEquipo = () => {
                     value={formData.ubicacion_id}
                     onChange={handleChange}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                    disabled={loading || submitSuccess}
                   >
                     <option value="">Sin ubicación asignada</option>
                     {loadingUbicaciones ? (
@@ -374,7 +420,8 @@ const NuevoEquipo = () => {
                 <div className="mt-2">
                   <button
                     type="button"
-                    className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800"
+                    className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    disabled={loading || submitSuccess}
                   >
                     <Plus className="h-4 w-4 mr-1" />
                     Agregar nueva ubicación
@@ -396,13 +443,14 @@ const NuevoEquipo = () => {
                     onChange={handleChange}
                     className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
                     placeholder="Información adicional sobre el equipo..."
+                    disabled={loading || submitSuccess}
                   />
                 </div>
               </div>
             </div>
 
-            <div className="pt-5">
-              <div className="flex justify-end">
+            <div className="pt-5 border-t border-gray-200">
+              <div className="flex justify-end mt-4">
                 <Link
                   to="/equipos"
                   className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
@@ -411,8 +459,8 @@ const NuevoEquipo = () => {
                 </Link>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  disabled={loading || submitSuccess}
+                  className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <>
@@ -421,6 +469,11 @@ const NuevoEquipo = () => {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Guardando...
+                    </>
+                  ) : submitSuccess ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      ¡Guardado!
                     </>
                   ) : (
                     <>
