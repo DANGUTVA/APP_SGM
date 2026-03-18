@@ -1,34 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getHistoricoMantenimientos } from '../lib/supabase';
-import { Search, Filter, Clock, Stethoscope } from 'lucide-react';
+import { Search, Filter, Clock, Stethoscope, AlertTriangle, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const HistorialMantenimientos = () => {
   const [historial, setHistorial] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
   const [historialFiltrado, setHistorialFiltrado] = useState<any[]>([]);
 
+  // Estado para forzar recarga manual si hay error
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
   useEffect(() => {
+    let isMounted = true;
+
     const fetchHistorial = async () => {
+      setLoading(true);
+      setError(null);
+      
       try {
         const data = await getHistoricoMantenimientos();
-        setHistorial(data);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error al cargar historial de mantenimientos:', error);
-        setLoading(false);
+        if (isMounted) {
+          setHistorial(data);
+          setLoading(false);
+        }
+      } catch (err: any) {
+        console.error('Error al cargar historial de mantenimientos:', err);
+        if (isMounted) {
+          setError(err.message || 'No se pudo cargar el historial de mantenimientos. Verifique su conexión.');
+          setLoading(false);
+        }
       }
     };
     
     fetchHistorial();
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [retryTrigger]);
 
   useEffect(() => {
-    // Aplicar filtros
+    // Aplicar filtros localmente
     let resultado = historial;
     
     // Filtrar por tipo de mantenimiento
@@ -37,14 +55,14 @@ const HistorialMantenimientos = () => {
     }
     
     // Filtrar por término de búsqueda
-    if (busqueda) {
-      const terminoBusqueda = busqueda.toLowerCase();
+    if (busqueda.trim()) {
+      const terminoBusqueda = busqueda.toLowerCase().trim();
       resultado = resultado.filter(registro => 
-        registro.equipos_medicos?.tipo_equipo?.toLowerCase().includes(terminoBusqueda) ||
-        registro.equipos_medicos?.marca?.toLowerCase().includes(terminoBusqueda) ||
-        registro.equipos_medicos?.modelo?.toLowerCase().includes(terminoBusqueda) ||
-        registro.equipos_medicos?.id_equipo?.toLowerCase().includes(terminoBusqueda) ||
-        registro.tecnico_responsable.toLowerCase().includes(terminoBusqueda)
+        (registro.equipos_medicos?.tipo_equipo?.toLowerCase().includes(terminoBusqueda)) ||
+        (registro.equipos_medicos?.marca?.toLowerCase().includes(terminoBusqueda)) ||
+        (registro.equipos_medicos?.modelo?.toLowerCase().includes(terminoBusqueda)) ||
+        (registro.equipos_medicos?.id_equipo?.toLowerCase().includes(terminoBusqueda)) ||
+        (registro.tecnico_responsable && registro.tecnico_responsable.toLowerCase().includes(terminoBusqueda))
       );
     }
     
@@ -60,6 +78,23 @@ const HistorialMantenimientos = () => {
           </div>
           <p className="mt-2 text-gray-600">Cargando historial de mantenimientos...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 bg-white shadow rounded-lg p-6">
+        <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Ocurrió un error</h2>
+        <p className="text-gray-600 mb-6 text-center max-w-md">{error}</p>
+        <button 
+          onClick={() => setRetryTrigger(prev => prev + 1)}
+          className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Reintentar
+        </button>
       </div>
     );
   }
@@ -112,7 +147,7 @@ const HistorialMantenimientos = () => {
           <div className="flow-root">
             <ul className="divide-y divide-gray-200">
               {historialFiltrado.map((registro) => (
-                <li key={registro.id} className="py-5 px-6">
+                <li key={registro.id} className="py-5 px-6 hover:bg-gray-50 transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center">
                       <div className="flex-shrink-0">
@@ -150,20 +185,20 @@ const HistorialMantenimientos = () => {
                       <p className="mt-1 text-sm text-gray-900">{registro.duracion_real} minutos</p>
                     </div>
                   </div>
-                  <div className="mt-4">
-                    <h4 className="text-sm font-medium text-gray-500">Acciones realizadas</h4>
-                    <p className="mt-1 text-sm text-gray-900 whitespace-pre-line">{registro.acciones_realizadas}</p>
+                  <div className="mt-4 bg-gray-50 p-3 rounded-md">
+                    <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider text-xs mb-1">Acciones realizadas</h4>
+                    <p className="text-sm text-gray-900 whitespace-pre-line">{registro.acciones_realizadas}</p>
                   </div>
                   {registro.hallazgos && (
-                    <div className="mt-4">
-                      <h4 className="text-sm font-medium text-gray-500">Hallazgos</h4>
-                      <p className="mt-1 text-sm text-gray-900 whitespace-pre-line">{registro.hallazgos}</p>
+                    <div className="mt-3">
+                      <h4 className="text-sm font-medium text-gray-500 uppercase tracking-wider text-xs mb-1">Hallazgos</h4>
+                      <p className="text-sm text-gray-900 whitespace-pre-line">{registro.hallazgos}</p>
                     </div>
                   )}
                   <div className="mt-4 flex justify-end">
                     <Link
                       to={`/equipos/${registro.equipo_id}`}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                      className="text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
                     >
                       Ver detalles del equipo →
                     </Link>
@@ -173,9 +208,9 @@ const HistorialMantenimientos = () => {
             </ul>
           </div>
         ) : (
-          <div className="text-center py-6">
-            <div className="mx-auto h-12 w-12 text-gray-400">
-              <Clock className="h-12 w-12" />
+          <div className="text-center py-10">
+            <div className="mx-auto h-12 w-12 text-gray-400 bg-gray-100 rounded-full flex items-center justify-center mb-3">
+              <Clock className="h-6 w-6" />
             </div>
             <h3 className="mt-2 text-sm font-medium text-gray-900">No se encontraron registros</h3>
             <p className="mt-1 text-sm text-gray-500">
